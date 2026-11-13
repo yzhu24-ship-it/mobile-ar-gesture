@@ -1,0 +1,1992 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>AR Magic Decision Coach - Mobile</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            background: #000;
+            touch-action: none;
+        }
+
+        /* Landscape orientation enforcement */
+        @media screen and (orientation: portrait) {
+            #orientation-warning {
+                display: flex !important;
+            }
+        }
+
+        #orientation-warning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+            font-size: 24px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .rotate-icon {
+            font-size: 80px;
+            margin-bottom: 30px;
+            animation: rotateAnim 2s ease-in-out infinite;
+        }
+
+        @keyframes rotateAnim {
+            0%, 100% { transform: rotate(0deg); }
+            50% { transform: rotate(90deg); }
+        }
+
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        /* Video stream */
+        #video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 0;
+        }
+
+        /* Canvas layers */
+        #arCanvas, #magicCanvas, #handCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        #arCanvas { z-index: 2; }
+        #magicCanvas { z-index: 3; }
+        #handCanvas { z-index: 4; opacity: 0.6; }
+
+        /* Status bar */
+        .status-bar {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 12px 25px;
+            border-radius: 25px;
+            color: white;
+            font-size: 14px;
+            z-index: 10;
+            text-align: center;
+            min-width: 200px;
+        }
+
+        .mode-indicator {
+            font-size: 12px;
+            color: #4ecdc4;
+            margin-bottom: 3px;
+        }
+
+        /* Gesture hint */
+        #gesture-hint {
+            position: fixed;
+            bottom: 90px;  /* Above decision bar (70px + 20px margin) */
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 16px;
+            display: none;
+            align-items: center;
+            z-index: 1001;  /* Above decision bar */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .hand-icon {
+            font-size: 28px;
+            margin-right: 12px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        /* Decision UI */
+        /* Decision UI - Bottom Bar (Always Visible) */
+        #decision-ui {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 1000;
+            pointer-events: auto;
+        }
+
+        .decision-panel {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(15px);
+            padding: 0;
+            display: flex;
+            align-items: stretch;
+            height: 70px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .decision-buttons {
+            display: flex;
+            width: 100%;
+            gap: 0;
+        }
+
+        .decision-btn {
+            flex: 1;
+            border: none;
+            background: transparent;
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            position: relative;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .decision-btn:last-child {
+            border-right: none;
+        }
+
+        .decision-btn.enabled {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .decision-btn.enabled:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .decision-btn.immediate.enabled {
+            color: #FF6B6B;
+        }
+
+        .decision-btn.later.enabled {
+            color: #4ECDC4;
+        }
+
+        .decision-btn.delete.enabled {
+            color: #95A5A6;
+        }
+
+        .decision-btn.archive.enabled {
+            color: #1DD1A1;
+        }
+
+        /* Remove unused styles */
+        .decision-title,
+        .item-name,
+        .btn-emoji,
+        .gesture-tip {
+            display: none;
+        }
+
+        /* Stats panel */
+        .stats-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 12px 18px;
+            border-radius: 15px;
+            color: white;
+            font-size: 12px;
+            z-index: 10;
+            min-width: 120px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 6px 0;
+        }
+
+        .stat-value {
+            color: #4ecdc4;
+            font-weight: bold;
+        }
+
+        /* Loading screen */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100000;
+        }
+
+        .loader {
+            width: 60px;
+            height: 60px;
+            border: 5px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+            margin-bottom: 25px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 20px;
+            margin-bottom: 15px;
+        }
+
+        .loading-progress {
+            font-size: 16px;
+            opacity: 0.8;
+        }
+
+        /* Feedback message */
+        #feedback-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 20px;
+            font-size: 18px;
+            z-index: 10000;
+            transition: transform 0.3s ease-out;
+            pointer-events: none;
+        }
+
+        #feedback-message.show {
+            transform: translate(-50%, -50%) scale(1);
+        }
+
+        /* Progress bar animations */
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(118, 75, 162, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0); }
+        }
+
+        #magic-progress-bar.completed #magic-progress-fill {
+            animation: pulse 1s ease-in-out;
+        }
+    </style>
+</head>
+<body>
+    <!-- Orientation warning -->
+    <div id="orientation-warning">
+        <div class="rotate-icon">📱</div>
+        <div>Please rotate to landscape</div>
+        <div style="font-size: 16px; margin-top: 20px; opacity: 0.8;">
+            For best experience, hold device horizontally
+        </div>
+    </div>
+
+    <!-- Loading screen -->
+    <div id="loading">
+        <div class="loader"></div>
+        <div class="loading-text">Loading Magic Models...</div>
+        <div class="loading-progress">TensorFlow.js + MediaPipe Hands</div>
+    </div>
+
+    <!-- Main container -->
+    <div id="container">
+        <video id="video" autoplay playsinline></video>
+        <canvas id="arCanvas"></canvas>
+        <canvas id="magicCanvas"></canvas>
+        <canvas id="handCanvas"></canvas>
+
+        <!-- Status bar -->
+        <div class="status-bar">
+            <div class="mode-indicator">Scanning Mode</div>
+            <div id="statusText">Open palm to summon decision</div>
+        </div>
+
+        <!-- Stats panel -->
+        <div class="stats-panel">
+            <div class="stat-row">
+                <span>Detected</span>
+                <span class="stat-value"><span id="detectedCount">0</span></span>
+            </div>
+            <div class="stat-row">
+                <span>Processed</span>
+                <span class="stat-value"><span id="processedCount">0</span></span>
+            </div>
+            <div class="stat-row">
+                <span>Remaining</span>
+                <span class="stat-value"><span id="remainingCount">0</span></span>
+            </div>
+        </div>
+
+        <!-- Gesture hint -->
+        <div id="gesture-hint">
+            <span class="hand-icon">🖐️</span>
+            <span id="hint-text">Open palm to start</span>
+        </div>
+
+        <!-- Progress Bar (Modern Style) -->
+        <div id="magic-progress-container" style="
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 85%;
+            max-width: 550px;
+            z-index: 900;
+        ">
+            <div style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+                color: white;
+                font-size: 14px;
+                font-weight: 600;
+                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            ">
+                <span>Progress</span>
+                <span id="magic-progress-count" style="color: #4ecdc4;">0/10</span>
+            </div>
+            <div style="position: relative;">
+                <div id="magic-progress-bar" style="
+                    width: 100%;
+                    height: 28px;
+                    background: linear-gradient(135deg, #1a1f3a 0%, #0f1628 100%);
+                    border-radius: 50px;
+                    overflow: hidden;
+                    position: relative;
+                    box-shadow:
+                        inset 0 2px 8px rgba(0,0,0,0.5),
+                        0 4px 15px rgba(0,0,0,0.4);
+                    border: 2px solid rgba(255,255,255,0.1);
+                " role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                    <div id="magic-progress-fill" style="
+                        width: 0%;
+                        height: 100%;
+                        background: linear-gradient(90deg,
+                            #00d4ff 0%,
+                            #4facfe 25%,
+                            #667eea 50%,
+                            #764ba2 75%,
+                            #5f3d7a 100%);
+                        border-radius: 50px;
+                        transition: width 0.6s cubic-bezier(0.2, 0.8, 0.3, 1);
+                        position: relative;
+                        overflow: hidden;
+                        box-shadow: 0 0 20px rgba(78, 205, 196, 0.6);
+                    ">
+                        <!-- Diagonal stripes pattern -->
+                        <div style="
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            background: repeating-linear-gradient(
+                                45deg,
+                                transparent,
+                                transparent 10px,
+                                rgba(255, 255, 255, 0.1) 10px,
+                                rgba(255, 255, 255, 0.1) 20px
+                            );
+                        "></div>
+                        <!-- Shimmer effect -->
+                        <div style="
+                            position: absolute;
+                            top: 0;
+                            left: 0;
+                            width: 100%;
+                            height: 100%;
+                            background: linear-gradient(90deg,
+                                rgba(255, 255, 255, 0) 0%,
+                                rgba(255, 255, 255, 0.3) 50%,
+                                rgba(255, 255, 255, 0) 100%);
+                            animation: shimmer 2s infinite;
+                        "></div>
+                    </div>
+                </div>
+                <!-- Percentage circle indicator -->
+                <div id="magic-progress-percentage" style="
+                    position: absolute;
+                    right: 4px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    width: 42px;
+                    height: 42px;
+                    background: linear-gradient(135deg, #667eea, #764ba2);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    font-size: 11px;
+                    font-weight: 700;
+                    box-shadow:
+                        0 4px 12px rgba(118, 75, 162, 0.5),
+                        inset 0 -2px 4px rgba(0,0,0,0.2);
+                    border: 3px solid rgba(255,255,255,0.2);
+                    transition: all 0.3s;
+                ">0%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Collection Task Display -->
+    <div id="collection-task-container" style="
+        position: fixed;
+        top: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 85%;
+        max-width: 550px;
+        z-index: 900;
+        background: rgba(0, 0, 0, 0.75);
+        backdrop-filter: blur(15px);
+        border-radius: 16px;
+        padding: 15px 20px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        border: 1px solid rgba(255,255,255,0.1);
+    ">
+        <div style="
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            text-align: center;
+            color: #4ecdc4;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        ">🎯 Collection Quest</div>
+
+        <div style="display: flex; gap: 10px; justify-content: space-around;">
+            <!-- Cuboid Collection -->
+            <div class="collection-item" data-item="cuboid" style="
+                flex: 1;
+                background: linear-gradient(135deg, rgba(255, 107, 107, 0.15), rgba(255, 107, 107, 0.05));
+                border: 2px solid rgba(255, 107, 107, 0.3);
+                border-radius: 12px;
+                padding: 12px;
+                text-align: center;
+                transition: all 0.3s;
+            ">
+                <div style="font-size: 28px; margin-bottom: 5px;">🔲</div>
+                <div style="color: white; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Cuboid</div>
+                <div id="collection-cuboid-count" style="
+                    color: #FF6B6B;
+                    font-size: 18px;
+                    font-weight: 700;
+                    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                ">[0/5]</div>
+            </div>
+
+            <!-- Cylinder Collection -->
+            <div class="collection-item" data-item="cylinder" style="
+                flex: 1;
+                background: linear-gradient(135deg, rgba(78, 205, 196, 0.15), rgba(78, 205, 196, 0.05));
+                border: 2px solid rgba(78, 205, 196, 0.3);
+                border-radius: 12px;
+                padding: 12px;
+                text-align: center;
+                transition: all 0.3s;
+            ">
+                <div style="font-size: 28px; margin-bottom: 5px;">⭕</div>
+                <div style="color: white; font-size: 12px; font-weight: 600; margin-bottom: 5px;">Cylinder</div>
+                <div id="collection-cylinder-count" style="
+                    color: #4ECDC4;
+                    font-size: 18px;
+                    font-weight: 700;
+                    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                ">[0/5]</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Decision UI - Bottom Bar -->
+    <div id="decision-ui">
+        <div class="decision-panel">
+            <div class="decision-buttons">
+                <button class="decision-btn immediate" data-action="immediate">Do Now</button>
+                <button class="decision-btn later" data-action="later">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <polyline points="12 6 12 12 16 14"></polyline>
+                    </svg>
+                    Do Later
+                </button>
+                <button class="decision-btn delete" data-action="delete">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 6px;">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                    </svg>
+                    Delete
+                </button>
+                <button class="decision-btn archive" data-action="archive">Archive</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feedback message -->
+    <div id="feedback-message"></div>
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js" crossorigin="anonymous"></script>
+
+    <script>
+        // ==============================================
+        // Mobile Configuration
+        // ==============================================
+
+        const MOBILE_CONFIG = {
+            detectionFrequency: 300,  // Detection every 300ms
+            maxDetections: 5,         // Max simultaneous detections
+            particleCount: 30,        // Reduced particles for mobile
+            palmHoldDuration: 1000,   // Palm must be open for 1s
+            focusRadius: 200,         // Focus area radius (pixels)
+            palmDistanceThreshold: 0.15, // Normalized distance threshold
+        };
+
+        // ==============================================
+        // Palm Open Detector Class
+        // ==============================================
+
+        class PalmOpenDetector {
+            constructor() {
+                this.palmOpenStartTime = 0;
+                this.palmOpenThreshold = MOBILE_CONFIG.palmHoldDuration;
+                this.isPalmOpen = false;
+                this.palmProgress = 0; // 0 to 1
+            }
+
+            /**
+             * Detect if palm is fully open
+             */
+            detectPalmOpen(landmarks) {
+                if (!landmarks || landmarks.length < 21) return false;
+
+                const wrist = landmarks[0];
+                const fingerTips = [4, 8, 12, 16, 20]; // Thumb, index, middle, ring, pinky
+
+                // Check all fingers are extended
+                let allFingersExtended = true;
+                for (const tipIndex of fingerTips) {
+                    const tip = landmarks[tipIndex];
+                    const distance = Math.sqrt(
+                        Math.pow(tip.x - wrist.x, 2) +
+                        Math.pow(tip.y - wrist.y, 2)
+                    );
+
+                    if (distance < MOBILE_CONFIG.palmDistanceThreshold) {
+                        allFingersExtended = false;
+                        break;
+                    }
+                }
+
+                // Check palm facing camera (thumb and pinky spread)
+                const thumbTip = landmarks[4];
+                const pinkyTip = landmarks[20];
+                const palmFacingCamera = Math.abs(thumbTip.x - pinkyTip.x) > 0.1;
+
+                return allFingersExtended && palmFacingCamera;
+            }
+
+            /**
+             * Update palm state and return trigger status
+             */
+            update(landmarks) {
+                const palmCurrentlyOpen = this.detectPalmOpen(landmarks);
+                const currentTime = Date.now();
+
+                if (palmCurrentlyOpen) {
+                    if (this.palmOpenStartTime === 0) {
+                        this.palmOpenStartTime = currentTime;
+                    }
+
+                    // Calculate progress
+                    const elapsed = currentTime - this.palmOpenStartTime;
+                    this.palmProgress = Math.min(1, elapsed / this.palmOpenThreshold);
+
+                    // Check if held long enough
+                    if (elapsed >= this.palmOpenThreshold && !this.isPalmOpen) {
+                        this.isPalmOpen = true;
+                        return { triggered: true, progress: 1 };
+                    }
+
+                    return { triggered: false, progress: this.palmProgress };
+                } else {
+                    // Reset when palm closes
+                    this.palmOpenStartTime = 0;
+                    this.isPalmOpen = false;
+                    this.palmProgress = 0;
+                    return { triggered: false, progress: 0 };
+                }
+            }
+
+            reset() {
+                this.palmOpenStartTime = 0;
+                this.isPalmOpen = false;
+                this.palmProgress = 0;
+            }
+        }
+
+        // ==============================================
+        // Progress Bar System Class
+        // ==============================================
+
+        class ProgressBarSystem {
+            constructor() {
+                this.currentProgress = 0;
+                this.maxProgress = 10; // 10 items = 100%
+                this.isVisible = true;
+            }
+
+            /**
+             * Update progress after each decision
+             */
+            updateProgress() {
+                this.currentProgress = Math.min(this.currentProgress + 1, this.maxProgress);
+
+                // Update UI
+                this.updateUI();
+
+                // Check completion
+                if (this.currentProgress >= this.maxProgress) {
+                    setTimeout(() => this.onComplete(), 300);
+                }
+
+                return this.getProgressData();
+            }
+
+            /**
+             * Get current progress data
+             */
+            getProgressData() {
+                const percentage = (this.currentProgress / this.maxProgress) * 100;
+                return {
+                    current: this.currentProgress,
+                    max: this.maxProgress,
+                    percentage: percentage,
+                    remaining: this.maxProgress - this.currentProgress
+                };
+            }
+
+            /**
+             * Handle progress completion
+             */
+            onComplete() {
+                // Play completion animation
+                this.playCompletionAnimation();
+
+                // Show completion message
+                this.showCompletionMessage();
+
+                // Reset after delay
+                setTimeout(() => this.resetProgress(), 3000);
+            }
+
+            /**
+             * Play completion animation
+             */
+            playCompletionAnimation() {
+                // Pulse effect on progress bar
+                const progressBar = document.getElementById('magic-progress-bar');
+                if (progressBar) {
+                    progressBar.classList.add('completed');
+                    setTimeout(() => progressBar.classList.remove('completed'), 1000);
+                }
+
+                // Particle burst
+                this.createParticleBurst();
+            }
+
+            /**
+             * Show completion message
+             */
+            showCompletionMessage() {
+                const message = document.createElement('div');
+                message.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    z-index: 10001;
+                    animation: medalDrop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+                `;
+
+                message.innerHTML = `
+                    <!-- Background overlay -->
+                    <div style="
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100vw;
+                        height: 100vh;
+                        background: rgba(0, 0, 0, 0.7);
+                        z-index: -1;
+                    "></div>
+
+                    <!-- Decorative stars -->
+                    <div style="position: absolute; top: -40px; left: -40px; font-size: 24px; opacity: 0.8; animation: twinkle 1.5s infinite;">✨</div>
+                    <div style="position: absolute; top: -30px; right: -30px; font-size: 20px; opacity: 0.6; animation: twinkle 1.5s 0.3s infinite;">⭐</div>
+                    <div style="position: absolute; bottom: 30px; left: -50px; font-size: 18px; opacity: 0.7; animation: twinkle 1.5s 0.6s infinite;">✨</div>
+                    <div style="position: absolute; bottom: 40px; right: -40px; font-size: 22px; opacity: 0.8; animation: twinkle 1.5s 0.9s infinite;">⭐</div>
+
+                    <!-- Main medal container -->
+                    <div style="
+                        position: relative;
+                        width: 200px;
+                        height: 250px;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                    ">
+                        <!-- Purple ribbons -->
+                        <div style="position: absolute; top: 0; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; z-index: 1;">
+                            <div style="
+                                width: 20px;
+                                height: 100px;
+                                background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+                                clip-path: polygon(0 0, 100% 0, 50% 100%);
+                                transform: translateX(-15px) rotate(-10deg);
+                                box-shadow: -2px 4px 8px rgba(0,0,0,0.3);
+                            "></div>
+                            <div style="
+                                width: 20px;
+                                height: 100px;
+                                background: linear-gradient(135deg, #a569bd 0%, #9b59b6 100%);
+                                clip-path: polygon(0 0, 100% 0, 50% 100%);
+                                transform: translateX(15px) rotate(10deg);
+                                box-shadow: 2px 4px 8px rgba(0,0,0,0.3);
+                            "></div>
+                        </div>
+
+                        <!-- Gold medal circle -->
+                        <div style="
+                            position: relative;
+                            width: 140px;
+                            height: 140px;
+                            background: linear-gradient(135deg, #f9d71c 0%, #f4a000 50%, #d68400 100%);
+                            border-radius: 50%;
+                            box-shadow:
+                                0 8px 20px rgba(244, 160, 0, 0.6),
+                                inset 0 -8px 15px rgba(0,0,0,0.2),
+                                inset 0 8px 15px rgba(255,255,255,0.4);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            z-index: 2;
+                            animation: medalRotate 2s ease-in-out infinite;
+                            border: 5px solid #f4c542;
+                        ">
+                            <!-- Inner circle -->
+                            <div style="
+                                width: 110px;
+                                height: 110px;
+                                background: linear-gradient(135deg, #ffd700 0%, #ffb700 100%);
+                                border-radius: 50%;
+                                box-shadow: inset 0 4px 10px rgba(0,0,0,0.15);
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                border: 3px solid #f9d71c;
+                            ">
+                                <!-- Star icon -->
+                                <div style="
+                                    font-size: 56px;
+                                    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+                                    animation: starPulse 1.5s ease-in-out infinite;
+                                ">⭐</div>
+                            </div>
+                        </div>
+
+                        <!-- Text below medal -->
+                        <div style="
+                            margin-top: 25px;
+                            text-align: center;
+                            color: white;
+                        ">
+                            <div style="
+                                font-size: 24px;
+                                font-weight: 800;
+                                margin-bottom: 8px;
+                                text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+                                letter-spacing: 1px;
+                            ">ROUND COMPLETE!</div>
+                            <div style="
+                                font-size: 16px;
+                                opacity: 0.95;
+                                text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                            ">10 items organized ✓</div>
+                        </div>
+                    </div>
+                `;
+
+                // Add animations
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes medalDrop {
+                        0% {
+                            transform: translate(-50%, -150%);
+                            opacity: 0;
+                        }
+                        60% {
+                            transform: translate(-50%, -45%);
+                        }
+                        80% {
+                            transform: translate(-50%, -55%);
+                        }
+                        100% {
+                            transform: translate(-50%, -50%);
+                            opacity: 1;
+                        }
+                    }
+
+                    @keyframes medalRotate {
+                        0%, 100% {
+                            transform: rotate(-5deg);
+                        }
+                        50% {
+                            transform: rotate(5deg);
+                        }
+                    }
+
+                    @keyframes starPulse {
+                        0%, 100% {
+                            transform: scale(1);
+                        }
+                        50% {
+                            transform: scale(1.1);
+                        }
+                    }
+
+                    @keyframes twinkle {
+                        0%, 100% {
+                            opacity: 0.3;
+                            transform: scale(1);
+                        }
+                        50% {
+                            opacity: 1;
+                            transform: scale(1.2);
+                        }
+                    }
+                `;
+                document.head.appendChild(style);
+
+                document.body.appendChild(message);
+
+                // Remove after 3.5 seconds
+                setTimeout(() => {
+                    message.style.animation = 'medalDrop 0.4s reverse';
+                    setTimeout(() => {
+                        if (message.parentNode) message.parentNode.removeChild(message);
+                        if (style.parentNode) style.parentNode.removeChild(style);
+                    }, 400);
+                }, 3500);
+            }
+
+            /**
+             * Reset progress
+             */
+            resetProgress() {
+                this.currentProgress = 0;
+                this.updateUI();
+            }
+
+            /**
+             * Create particle burst effect
+             */
+            createParticleBurst() {
+                const particles = 15;
+                const centerX = window.innerWidth / 2;
+                const centerY = 50;
+
+                for (let i = 0; i < particles; i++) {
+                    setTimeout(() => {
+                        const particle = document.createElement('div');
+                        particle.style.cssText = `
+                            position: fixed;
+                            top: ${centerY}px;
+                            left: ${centerX}px;
+                            width: 8px;
+                            height: 8px;
+                            background: linear-gradient(135deg, #667eea, #764ba2);
+                            border-radius: 50%;
+                            pointer-events: none;
+                            z-index: 999;
+                        `;
+
+                        document.body.appendChild(particle);
+
+                        const angle = Math.random() * Math.PI * 2;
+                        const distance = 60 + Math.random() * 80;
+                        const duration = 700 + Math.random() * 300;
+
+                        particle.animate([
+                            { transform: `translate(0, 0) scale(1)`, opacity: 1 },
+                            { transform: `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px) scale(0)`, opacity: 0 }
+                        ], {
+                            duration: duration,
+                            easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)'
+                        });
+
+                        setTimeout(() => {
+                            if (particle.parentNode) particle.parentNode.removeChild(particle);
+                        }, duration);
+                    }, i * 20);
+                }
+            }
+
+            /**
+             * Update progress bar UI
+             */
+            updateUI() {
+                const progressFill = document.getElementById('magic-progress-fill');
+                const progressCount = document.getElementById('magic-progress-count');
+                const progressPercentage = document.getElementById('magic-progress-percentage');
+                const progressBar = document.getElementById('magic-progress-bar');
+
+                if (progressFill && progressCount && progressPercentage && progressBar) {
+                    const percentage = (this.currentProgress / this.maxProgress) * 100;
+
+                    progressFill.style.width = `${percentage}%`;
+                    progressCount.textContent = `${this.currentProgress}/${this.maxProgress}`;
+                    progressPercentage.textContent = `${Math.round(percentage)}%`;
+                    progressBar.setAttribute('aria-valuenow', percentage);
+
+                    // Scale up percentage circle when progress increases
+                    progressPercentage.style.transform = 'translateY(-50%) scale(1.15)';
+                    setTimeout(() => {
+                        progressPercentage.style.transform = 'translateY(-50%) scale(1)';
+                    }, 200);
+                }
+            }
+
+            /**
+             * Set progress bar visibility
+             */
+            setVisibility(visible) {
+                this.isVisible = visible;
+                const container = document.getElementById('magic-progress-container');
+                if (container) {
+                    container.style.display = visible ? 'block' : 'none';
+                }
+            }
+        }
+
+        // ==============================================
+        // Collection System Class
+        // ==============================================
+
+        class CollectionSystem {
+            constructor() {
+                this.collections = {
+                    cuboid: {
+                        current: 0,
+                        max: 5,
+                        items: [],  // Store collected item details
+                        completed: false
+                    },
+                    cylinder: {
+                        current: 0,
+                        max: 5,
+                        items: [],
+                        completed: false
+                    }
+                };
+            }
+
+            /**
+             * Collect an item
+             */
+            collectItem(itemType, itemData) {
+                // Normalize item type
+                const type = this.normalizeItemType(itemType);
+
+                if (!type || !this.collections[type]) {
+                    return { success: false, reason: 'Invalid item type' };
+                }
+
+                const collection = this.collections[type];
+
+                // Check if already completed
+                if (collection.completed) {
+                    return { success: false, reason: 'Collection already completed' };
+                }
+
+                // Check if already at max
+                if (collection.current >= collection.max) {
+                    collection.completed = true;
+                    this.onCategoryComplete(type);
+                    return { success: false, reason: 'Already at maximum' };
+                }
+
+                // Add item to collection
+                collection.current++;
+                collection.items.push({
+                    timestamp: Date.now(),
+                    data: itemData
+                });
+
+                // Update UI
+                this.updateUI(type);
+
+                // Play collection animation
+                this.playCollectionAnimation(type, itemData);
+
+                // Check if just completed
+                if (collection.current >= collection.max) {
+                    collection.completed = true;
+                    setTimeout(() => this.onCategoryComplete(type), 500);
+                }
+
+                return {
+                    success: true,
+                    current: collection.current,
+                    max: collection.max,
+                    completed: collection.completed
+                };
+            }
+
+            /**
+             * Normalize item type to geometric shapes (cuboid, cylinder, etc.)
+             * ALL objects will be classified as either cuboid or cylinder
+             */
+            normalizeItemType(itemType) {
+                const type = itemType.toLowerCase();
+
+                // Map objects to CYLINDER (cylindrical/round objects)
+                const cylinderItems = ['bottle', 'cup', 'wine glass', 'vase', 'bowl', 'mug',
+                                      'can', 'glass', 'jar', 'person', 'sports ball', 'orange',
+                                      'apple', 'donut', 'cake'];
+
+                // Check if item matches cylinder shapes (prioritize cylinder check first)
+                for (const item of cylinderItems) {
+                    if (type.includes(item)) {
+                        return 'cylinder';
+                    }
+                }
+
+                // ALL other objects default to CUBOID
+                // This includes: box, book, laptop, phone, tv, car, chair, table, etc.
+                return 'cuboid';
+            }
+
+            /**
+             * Update collection UI
+             */
+            updateUI(type) {
+                const collection = this.collections[type];
+                const countElement = document.getElementById(`collection-${type}-count`);
+                const itemElement = document.querySelector(`.collection-item[data-item="${type}"]`);
+
+                if (countElement) {
+                    countElement.textContent = `[${collection.current}/${collection.max}]`;
+
+                    // Pulse animation
+                    countElement.style.transform = 'scale(1.3)';
+                    setTimeout(() => {
+                        countElement.style.transform = 'scale(1)';
+                    }, 200);
+                }
+
+                // Highlight the collection item
+                if (itemElement) {
+                    itemElement.style.transform = 'scale(1.05)';
+                    itemElement.style.boxShadow = type === 'cuboid'
+                        ? '0 0 20px rgba(255, 107, 107, 0.6)'
+                        : '0 0 20px rgba(78, 205, 196, 0.6)';
+
+                    setTimeout(() => {
+                        itemElement.style.transform = 'scale(1)';
+                        itemElement.style.boxShadow = 'none';
+                    }, 300);
+                }
+            }
+
+            /**
+             * Play collection animation
+             */
+            playCollectionAnimation(type, itemData) {
+                // Create collection effect at item position
+                if (itemData && itemData.bbox) {
+                    const [x, y, width, height] = itemData.bbox;
+                    const centerX = x + width / 2;
+                    const centerY = y + height / 2;
+
+                    // Checkmark effect
+                    const checkmark = document.createElement('div');
+                    checkmark.style.cssText = `
+                        position: fixed;
+                        left: ${centerX}px;
+                        top: ${centerY}px;
+                        transform: translate(-50%, -50%);
+                        font-size: 48px;
+                        z-index: 9999;
+                        pointer-events: none;
+                    `;
+                    checkmark.textContent = '✓';
+                    document.body.appendChild(checkmark);
+
+                    // Animate checkmark
+                    checkmark.animate([
+                        { transform: 'translate(-50%, -50%) scale(0)', opacity: 0 },
+                        { transform: 'translate(-50%, -50%) scale(1.5)', opacity: 1, offset: 0.5 },
+                        { transform: 'translate(-50%, -50%) scale(1)', opacity: 0 }
+                    ], {
+                        duration: 800,
+                        easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)'
+                    });
+
+                    setTimeout(() => {
+                        if (checkmark.parentNode) checkmark.parentNode.removeChild(checkmark);
+                    }, 800);
+
+                    // Particle effect
+                    this.createCollectionParticles(centerX, centerY, type);
+                }
+            }
+
+            /**
+             * Create particle effect for collection
+             */
+            createCollectionParticles(x, y, type) {
+                const color = type === 'cuboid' ? '#FF6B6B' : '#4ECDC4';
+                const particles = 12;
+
+                for (let i = 0; i < particles; i++) {
+                    setTimeout(() => {
+                        const particle = document.createElement('div');
+                        particle.style.cssText = `
+                            position: fixed;
+                            left: ${x}px;
+                            top: ${y}px;
+                            width: 6px;
+                            height: 6px;
+                            background: ${color};
+                            border-radius: 50%;
+                            pointer-events: none;
+                            z-index: 9998;
+                        `;
+
+                        document.body.appendChild(particle);
+
+                        const angle = (Math.PI * 2 / particles) * i;
+                        const distance = 40 + Math.random() * 30;
+
+                        particle.animate([
+                            { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 },
+                            { transform: `translate(${Math.cos(angle) * distance}px, ${Math.sin(angle) * distance}px) scale(0)`, opacity: 0 }
+                        ], {
+                            duration: 600,
+                            easing: 'cubic-bezier(0.2, 0.8, 0.3, 1)'
+                        });
+
+                        setTimeout(() => {
+                            if (particle.parentNode) particle.parentNode.removeChild(particle);
+                        }, 600);
+                    }, i * 15);
+                }
+            }
+
+            /**
+             * Handle category completion
+             */
+            onCategoryComplete(type) {
+                const emoji = type === 'cuboid' ? '🔲' : '⭕';
+                const color = type === 'cuboid' ? '#FF6B6B' : '#4ECDC4';
+                const name = type.charAt(0).toUpperCase() + type.slice(1);
+
+                // Show completion message
+                const message = document.createElement('div');
+                message.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: rgba(0, 0, 0, 0.9);
+                    backdrop-filter: blur(15px);
+                    padding: 30px 40px;
+                    border-radius: 20px;
+                    z-index: 10000;
+                    text-align: center;
+                    border: 3px solid ${color};
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 20px ${color}80;
+                `;
+
+                message.innerHTML = `
+                    <div style="font-size: 64px; margin-bottom: 15px; animation: bounce 0.6s ease-in-out;">${emoji}</div>
+                    <div style="color: ${color}; font-size: 24px; font-weight: 700; margin-bottom: 10px;">
+                        ${name} Collection Complete!
+                    </div>
+                    <div style="color: white; font-size: 16px;">
+                        ${this.collections[type].max}/${this.collections[type].max} collected ✓
+                    </div>
+                `;
+
+                document.body.appendChild(message);
+
+                // Add bounce animation
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes bounce {
+                        0%, 100% { transform: scale(1); }
+                        50% { transform: scale(1.2); }
+                    }
+                `;
+                document.head.appendChild(style);
+
+                // Remove after delay
+                setTimeout(() => {
+                    if (message.parentNode) message.parentNode.removeChild(message);
+                    if (style.parentNode) style.parentNode.removeChild(style);
+                }, 2500);
+
+                // Check if all collections are complete
+                this.checkAllCollectionsComplete();
+            }
+
+            /**
+             * Check if all collections are complete
+             */
+            checkAllCollectionsComplete() {
+                const allComplete = Object.values(this.collections).every(c => c.completed);
+
+                if (allComplete) {
+                    setTimeout(() => this.onAllCollectionsComplete(), 1000);
+                }
+            }
+
+            /**
+             * Handle all collections completion
+             */
+            onAllCollectionsComplete() {
+                const message = document.createElement('div');
+                message.style.cssText = `
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: linear-gradient(135deg, rgba(255, 107, 107, 0.95), rgba(78, 205, 196, 0.95));
+                    backdrop-filter: blur(20px);
+                    padding: 40px 50px;
+                    border-radius: 25px;
+                    z-index: 10001;
+                    text-align: center;
+                    border: 4px solid white;
+                    box-shadow: 0 15px 50px rgba(0,0,0,0.6);
+                `;
+
+                message.innerHTML = `
+                    <div style="font-size: 72px; margin-bottom: 20px;">🎉</div>
+                    <div style="color: white; font-size: 28px; font-weight: 700; margin-bottom: 15px; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">
+                        ALL COLLECTIONS COMPLETE!
+                    </div>
+                    <div style="color: white; font-size: 18px; opacity: 0.95;">
+                        🔲 Cuboids: 5/5 • ⭕ Cylinders: 5/5
+                    </div>
+                `;
+
+                document.body.appendChild(message);
+
+                // Remove after delay
+                setTimeout(() => {
+                    if (message.parentNode) message.parentNode.removeChild(message);
+                }, 4000);
+            }
+
+            /**
+             * Get collection status
+             */
+            getCollectionStatus(type) {
+                return this.collections[type] || null;
+            }
+
+            /**
+             * Reset collections
+             */
+            reset() {
+                Object.keys(this.collections).forEach(type => {
+                    this.collections[type].current = 0;
+                    this.collections[type].items = [];
+                    this.collections[type].completed = false;
+                    this.updateUI(type);
+                });
+            }
+        }
+
+        // ==============================================
+        // Focus Item Selector Class
+        // ==============================================
+
+        class FocusItemSelector {
+            constructor() {
+                this.currentFocusItem = null;
+                this.focusRadius = MOBILE_CONFIG.focusRadius;
+            }
+
+            /**
+             * Select item closest to screen center
+             */
+            selectFocusItem(detectedItems, screenCenter) {
+                if (!detectedItems || detectedItems.length === 0) {
+                    this.currentFocusItem = null;
+                    return null;
+                }
+
+                let closestItem = null;
+                let closestDistance = Infinity;
+
+                detectedItems.forEach(item => {
+                    const [x, y, width, height] = item.bbox;
+                    const itemCenter = {
+                        x: x + width / 2,
+                        y: y + height / 2
+                    };
+
+                    const distance = Math.sqrt(
+                        Math.pow(itemCenter.x - screenCenter.x, 2) +
+                        Math.pow(itemCenter.y - screenCenter.y, 2)
+                    );
+
+                    if (distance < this.focusRadius && distance < closestDistance) {
+                        closestDistance = distance;
+                        closestItem = item;
+                    }
+                });
+
+                this.currentFocusItem = closestItem;
+                return closestItem;
+            }
+
+            /**
+             * Draw focus effect around item
+             */
+            drawFocusEffect(item, ctx, progress = 1) {
+                if (!item) return;
+
+                const [x, y, width, height] = item.bbox;
+                const centerX = x + width / 2;
+                const centerY = y + height / 2;
+                const radius = Math.max(width, height) / 2 + 30;
+
+                // Pulsing outer ring
+                const time = Date.now() * 0.001;
+                const pulse = Math.sin(time * 3) * 5;
+
+                // Outer glow
+                const gradient = ctx.createRadialGradient(
+                    centerX, centerY, radius,
+                    centerX, centerY, radius + pulse + 30
+                );
+                gradient.addColorStop(0, 'rgba(78, 205, 196, 0)');
+                gradient.addColorStop(0.5, `rgba(78, 205, 196, ${0.4 * progress})`);
+                gradient.addColorStop(1, 'rgba(78, 205, 196, 0)');
+
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius + pulse + 30, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                // Inner ring
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, radius + 15, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(255, 215, 0, ${0.6 + 0.4 * Math.sin(time * 5)})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Progress indicator
+                if (progress < 1) {
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius + 25, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+                    ctx.strokeStyle = `rgba(255, 215, 0, 0.9)`;
+                    ctx.lineWidth = 6;
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // ==============================================
+        // Main Application
+        // ==============================================
+
+        class ARMagicDecisionCoachMobile {
+            constructor() {
+                // DOM elements
+                this.video = document.getElementById('video');
+                this.arCanvas = document.getElementById('arCanvas');
+                this.arCtx = this.arCanvas.getContext('2d');
+                this.magicCanvas = document.getElementById('magicCanvas');
+                this.magicCtx = this.magicCanvas.getContext('2d');
+                this.handCanvas = document.getElementById('handCanvas');
+                this.handCtx = this.handCanvas.getContext('2d');
+
+                // Models
+                this.cocoModel = null;
+                this.handsModel = null;
+
+                // State
+                this.isProcessingItem = false;
+                this.processedItems = new Set();
+                this.detectedObjects = [];
+                this.currentFocusItem = null;
+                this.handLandmarks = null;
+                this.lastDetectionTime = 0;
+                this.decisions = [];
+
+                // Detectors
+                this.palmDetector = new PalmOpenDetector();
+                this.focusSelector = new FocusItemSelector();
+                this.progressSystem = new ProgressBarSystem();
+                this.collectionSystem = new CollectionSystem();
+
+                // Decision buttons
+                this.setupDecisionButtons();
+            }
+
+            async init() {
+                try {
+                    console.log('🚀 Starting AR Magic Decision Coach Mobile');
+
+                    // Check mobile compatibility
+                    this.checkMobileCompatibility();
+
+                    // Initialize camera
+                    await this.initCamera();
+                    console.log('✅ Camera ready');
+
+                    // Load COCO-SSD
+                    document.querySelector('.loading-progress').textContent = 'Loading object detection...';
+                    this.cocoModel = await cocoSsd.load();
+                    console.log('✅ COCO-SSD loaded');
+
+                    // Load MediaPipe Hands
+                    document.querySelector('.loading-progress').textContent = 'Loading hand tracking...';
+                    await this.initHands();
+                    console.log('✅ MediaPipe Hands loaded');
+
+                    // Hide loading
+                    document.getElementById('loading').style.display = 'none';
+
+                    // Show gesture hint
+                    document.getElementById('gesture-hint').style.display = 'flex';
+
+                    // Start main loop
+                    this.mainLoop();
+
+                } catch (err) {
+                    console.error('❌ Initialization failed:', err);
+                    alert('Initialization failed: ' + err.message);
+                }
+            }
+
+            checkMobileCompatibility() {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                if (!isMobile) {
+                    console.warn('Not a mobile device, some features may be limited');
+                }
+
+                if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+                    console.warn('Recommend using HTTPS for camera access');
+                }
+            }
+
+            async initCamera() {
+                try {
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('Camera API not supported');
+                    }
+
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    });
+
+                    this.video.srcObject = stream;
+
+                    return new Promise((resolve) => {
+                        this.video.onloadedmetadata = () => {
+                            this.resizeCanvas();
+                            resolve();
+                        };
+                    });
+                } catch (err) {
+                    let errorMsg = 'Failed to access camera: ';
+                    if (err.name === 'NotAllowedError') {
+                        errorMsg += 'Permission denied';
+                    } else if (err.name === 'NotFoundError') {
+                        errorMsg += 'No camera found';
+                    } else {
+                        errorMsg += err.message;
+                    }
+                    throw new Error(errorMsg);
+                }
+            }
+
+            async initHands() {
+                this.handsModel = new Hands({
+                    locateFile: (file) => {
+                        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/${file}`;
+                    }
+                });
+
+                this.handsModel.setOptions({
+                    maxNumHands: 1,
+                    modelComplexity: 1,
+                    minDetectionConfidence: 0.7,
+                    minTrackingConfidence: 0.7
+                });
+
+                this.handsModel.onResults((results) => {
+                    if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                        this.handLandmarks = results.multiHandLandmarks[0];
+                        this.drawHandSkeleton(results);
+                    } else {
+                        this.handLandmarks = null;
+                    }
+                });
+
+                const camera = new Camera(this.video, {
+                    onFrame: async () => {
+                        await this.handsModel.send({ image: this.video });
+                    },
+                    width: 1280,
+                    height: 720
+                });
+
+                camera.start();
+            }
+
+            resizeCanvas() {
+                [this.arCanvas, this.magicCanvas, this.handCanvas].forEach(canvas => {
+                    canvas.width = window.innerWidth;
+                    canvas.height = window.innerHeight;
+                });
+            }
+
+            setupDecisionButtons() {
+                const buttons = document.querySelectorAll('.decision-btn');
+                buttons.forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const action = btn.dataset.action;
+                        this.completeDecision(action);
+                    });
+                });
+            }
+
+            // Main loop
+            async mainLoop() {
+                try {
+                    const currentTime = Date.now();
+
+                    // Control detection frequency
+                    if (currentTime - this.lastDetectionTime > MOBILE_CONFIG.detectionFrequency) {
+                        if (!this.isProcessingItem) {
+                            // Detect objects
+                            const predictions = await this.cocoModel.detect(this.video);
+                            this.detectedObjects = predictions
+                                .filter(p => p.score > 0.6)
+                                .slice(0, MOBILE_CONFIG.maxDetections);
+
+                            this.lastDetectionTime = currentTime;
+                        }
+                    }
+
+                    // Clear canvases
+                    this.arCtx.clearRect(0, 0, this.arCanvas.width, this.arCanvas.height);
+                    this.magicCtx.clearRect(0, 0, this.magicCanvas.width, this.magicCanvas.height);
+
+                    if (!this.isProcessingItem) {
+                        // Scanning mode
+                        this.processScanningMode();
+                    }
+
+                    // Update stats
+                    this.updateStats();
+
+                } catch (err) {
+                    console.error('Main loop error:', err);
+                }
+
+                requestAnimationFrame(() => this.mainLoop());
+            }
+
+            processScanningMode() {
+                // Filter unprocessed items
+                const availableItems = this.detectedObjects.filter(item =>
+                    !this.processedItems.has(this.getItemId(item))
+                );
+
+                // Draw AR labels
+                this.drawARLabels(availableItems);
+
+                // Check palm gesture
+                if (this.handLandmarks) {
+                    const palmResult = this.palmDetector.update(this.handLandmarks);
+
+                    if (palmResult.progress > 0 && availableItems.length > 0) {
+                        // Show focus effect while holding palm
+                        const screenCenter = {
+                            x: this.arCanvas.width / 2,
+                            y: this.arCanvas.height / 2
+                        };
+
+                        const focusItem = this.focusSelector.selectFocusItem(availableItems, screenCenter);
+                        if (focusItem) {
+                            this.focusSelector.drawFocusEffect(focusItem, this.magicCtx, palmResult.progress);
+                        }
+                    }
+
+                    if (palmResult.triggered && availableItems.length > 0) {
+                        // Trigger decision
+                        this.triggerDecision(availableItems);
+                    }
+                }
+
+                // Update hint text
+                this.updateGestureHint(availableItems.length);
+            }
+
+            triggerDecision(availableItems) {
+                const screenCenter = {
+                    x: this.arCanvas.width / 2,
+                    y: this.arCanvas.height / 2
+                };
+
+                const focusItem = this.focusSelector.selectFocusItem(availableItems, screenCenter);
+
+                if (focusItem) {
+                    this.isProcessingItem = true;
+                    this.currentFocusItem = focusItem;
+                    this.processedItems.add(this.getItemId(focusItem));
+
+                    // Collect item immediately upon identification
+                    const collectionResult = this.collectionSystem.collectItem(
+                        focusItem.class,
+                        focusItem
+                    );
+
+                    // Update progress bar
+                    this.progressSystem.updateProgress();
+
+                    // Log collection
+                    if (collectionResult.success) {
+                        console.log(`✅ Collected: ${focusItem.class} → ${collectionResult.current}/${collectionResult.max}`);
+                    }
+
+                    // Play trigger sound
+                    this.playTriggerSound();
+
+                    // Show decision UI
+                    this.showDecisionUI(focusItem);
+
+                    // Reset palm detector
+                    this.palmDetector.reset();
+                }
+            }
+
+            showDecisionUI(item) {
+                // Enable decision buttons
+                const buttons = document.querySelectorAll('.decision-btn');
+                buttons.forEach(btn => btn.classList.add('enabled'));
+
+                document.getElementById('statusText').textContent = `Decide: ${this.getItemLabel(item.class)}`;
+            }
+
+            completeDecision(action) {
+                // Record decision
+                this.decisions.push({
+                    timestamp: Date.now(),
+                    item: this.currentFocusItem.class,
+                    action: action
+                });
+
+                // Show feedback
+                this.showFeedback(action);
+
+                // Play confirmation sound
+                this.playConfirmationSound();
+
+                // Disable decision buttons
+                setTimeout(() => {
+                    const buttons = document.querySelectorAll('.decision-btn');
+                    buttons.forEach(btn => btn.classList.remove('enabled'));
+
+                    // Return to scanning
+                    setTimeout(() => {
+                        this.isProcessingItem = false;
+                        this.currentFocusItem = null;
+                        document.getElementById('statusText').textContent = 'Open palm to summon decision';
+                    }, 500);
+                }, 300);
+            }
+
+            drawARLabels(items) {
+                items.forEach(item => {
+                    const [x, y, width, height] = item.bbox;
+                    const mirroredX = this.arCanvas.width - x - width;
+
+                    // Check if processed
+                    const isProcessed = this.processedItems.has(this.getItemId(item));
+                    const alpha = isProcessed ? 0.3 : 1.0;
+
+                    // Draw bounding box
+                    this.arCtx.strokeStyle = isProcessed ? `rgba(150, 150, 150, ${alpha})` : `rgba(255, 255, 255, ${alpha})`;
+                    this.arCtx.lineWidth = 2;
+                    this.arCtx.strokeRect(mirroredX, y, width, height);
+
+                    // Draw label
+                    const label = this.getItemLabel(item.class);
+                    this.arCtx.font = '16px Arial';
+                    const labelWidth = this.arCtx.measureText(label).width + 16;
+
+                    this.arCtx.fillStyle = isProcessed ? `rgba(100, 100, 100, ${alpha})` : `rgba(0, 0, 0, ${alpha * 0.8})`;
+                    this.arCtx.fillRect(mirroredX, y - 30, labelWidth, 30);
+
+                    this.arCtx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    this.arCtx.fillText(label, mirroredX + 8, y - 10);
+
+                    // Checkmark if processed
+                    if (isProcessed) {
+                        this.arCtx.font = '24px Arial';
+                        this.arCtx.fillText('✓', mirroredX + width - 30, y + 30);
+                    }
+                });
+            }
+
+            drawHandSkeleton(results) {
+                this.handCtx.clearRect(0, 0, this.handCanvas.width, this.handCanvas.height);
+
+                if (results.multiHandLandmarks) {
+                    for (const landmarks of results.multiHandLandmarks) {
+                        // Draw keypoints
+                        for (const landmark of landmarks) {
+                            const x = (1 - landmark.x) * this.handCanvas.width;
+                            const y = landmark.y * this.handCanvas.height;
+
+                            this.handCtx.beginPath();
+                            this.handCtx.arc(x, y, 5, 0, 2 * Math.PI);
+                            this.handCtx.fillStyle = 'rgba(0, 255, 0, 0.8)';
+                            this.handCtx.fill();
+                        }
+
+                        // Draw connections
+                        const connections = [
+                            [0, 1], [1, 2], [2, 3], [3, 4],
+                            [0, 5], [5, 6], [6, 7], [7, 8],
+                            [5, 9], [9, 10], [10, 11], [11, 12],
+                            [9, 13], [13, 14], [14, 15], [15, 16],
+                            [13, 17], [17, 18], [18, 19], [19, 20],
+                            [0, 17]
+                        ];
+
+                        this.handCtx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+                        this.handCtx.lineWidth = 2;
+
+                        for (const [start, end] of connections) {
+                            const startPoint = landmarks[start];
+                            const endPoint = landmarks[end];
+
+                            const x1 = (1 - startPoint.x) * this.handCanvas.width;
+                            const y1 = startPoint.y * this.handCanvas.height;
+                            const x2 = (1 - endPoint.x) * this.handCanvas.width;
+                            const y2 = endPoint.y * this.handCanvas.height;
+
+                            this.handCtx.beginPath();
+                            this.handCtx.moveTo(x1, y1);
+                            this.handCtx.lineTo(x2, y2);
+                            this.handCtx.stroke();
+                        }
+                    }
+                }
+            }
+
+            updateStats() {
+                const unprocessed = this.detectedObjects.filter(item =>
+                    !this.processedItems.has(this.getItemId(item))
+                ).length;
+
+                document.getElementById('detectedCount').textContent = this.detectedObjects.length;
+                document.getElementById('processedCount').textContent = this.processedItems.size;
+                document.getElementById('remainingCount').textContent = unprocessed;
+            }
+
+            updateGestureHint(availableCount) {
+                const hintText = document.getElementById('hint-text');
+                if (availableCount > 0) {
+                    hintText.textContent = `${availableCount} items detected - open palm`;
+                } else if (this.processedItems.size > 0) {
+                    hintText.textContent = 'All items processed!';
+                } else {
+                    hintText.textContent = 'Point camera at objects';
+                }
+            }
+
+            showFeedback(action) {
+                const messages = {
+                    'immediate': '✓ Marked as Do Now',
+                    'later': '✓ Added to To-Do',
+                    'delete': '✓ Marked for Delete',
+                    'archive': '✓ Archived'
+                };
+
+                const feedbackEl = document.getElementById('feedback-message');
+                feedbackEl.textContent = messages[action] || '✓ Done';
+                feedbackEl.classList.add('show');
+
+                setTimeout(() => {
+                    feedbackEl.classList.remove('show');
+                }, 2000);
+            }
+
+            getItemLabel(className) {
+                const labels = {
+                    'person': '👤 Person',
+                    'cup': '☕ Cup',
+                    'bottle': '🍾 Bottle',
+                    'book': '📖 Book',
+                    'cell phone': '📱 Phone',
+                    'laptop': '💻 Laptop',
+                    'keyboard': '⌨️ Keyboard',
+                    'mouse': '🖱️ Mouse',
+                    'remote': '📺 Remote',
+                    'clock': '⏰ Clock'
+                };
+                return labels[className] || '📦 ' + className;
+            }
+
+            getItemId(item) {
+                return `${item.class}_${Math.round(item.bbox[0])}_${Math.round(item.bbox[1])}`;
+            }
+
+            playTriggerSound() {
+                try {
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.frequency.value = 800;
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.3);
+                } catch (e) {}
+            }
+
+            playConfirmationSound() {
+                try {
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioCtx.createOscillator();
+                    const gainNode = audioCtx.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+                    oscillator.frequency.exponentialRampToValueAtTime(900, audioCtx.currentTime + 0.15);
+
+                    oscillator.type = 'sine';
+
+                    gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+
+                    oscillator.start();
+                    oscillator.stop(audioCtx.currentTime + 0.4);
+                } catch (e) {}
+            }
+        }
+
+        // ==============================================
+        // Start Application
+        // ==============================================
+
+        window.addEventListener('load', async () => {
+            try {
+                const app = new ARMagicDecisionCoachMobile();
+                await app.init();
+            } catch (error) {
+                console.error('Application failed to start:', error);
+                document.querySelector('.loading-text').textContent = 'Failed: ' + error.message;
+            }
+        });
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            setTimeout(() => {
+                if (window.app) {
+                    window.app.resizeCanvas();
+                }
+            }, 100);
+        });
+    </script>
+</body>
+</html>
